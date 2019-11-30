@@ -94,6 +94,8 @@
     <Compile Include="ReportingTest.cs" />
     <Compile Include="ReportReceiver.cs" />
     <Compile Include="Settings.cs" />
+    <Compile Include="Solved\ErrorHandler.cs" />
+    <Compile Include="Solved\Program_Solved.cs" />
   </ItemGroup>
   <ItemGroup>
     <Content Include="NLog.config">

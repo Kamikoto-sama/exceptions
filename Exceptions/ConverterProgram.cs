@@ -5,6 +5,7 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
 using System.Xml.Serialization;
 using NLog;
 
@@ -18,9 +19,13 @@ namespace Exceptions
         {
             try
             {
-                var filenames = args.Any() ? args : new[] { "text.txt" };
+                var filenames = args.Any() ? args : new[] {"text.txt"};
                 var settings = LoadSettings();
                 ConvertFiles(filenames, settings);
+            }
+            catch (InvalidOperationException)
+            {
+                log.Error(new XmlException("Не удалось прочитать файл настроек"));
             }
             catch (Exception e)
             {
@@ -33,18 +38,39 @@ namespace Exceptions
             var tasks = filenames
                 .Select(fn => Task.Run(() => ConvertFile(fn, settings))) 
                 .ToArray();
-            Task.WaitAll(tasks); 
+            try
+            {
+                Task.WaitAll(tasks);
+            }
+            catch (AggregateException)
+            {
+                log.Error("Некорректная строка");
+            }
         }
 
         private static Settings LoadSettings() 
         {
-            var serializer = new XmlSerializer(typeof(Settings));
-            var content = File.ReadAllText("settings.xml");
-            return (Settings) serializer.Deserialize(new StringReader(content));
+            try
+            {
+                var serializer = new XmlSerializer(typeof(Settings));
+                var content = File.ReadAllText("settings.xml");
+                return (Settings) serializer.Deserialize(new StringReader(content));
+            }
+            catch (FileNotFoundException)
+            {
+                log.Error("Файл настроек .* отсутствует.");
+                return Settings.Default;
+            }
         }
 
         private static void ConvertFile(string filename, Settings settings)
         {
+            if (!File.Exists(filename))
+            {
+                log.Error(new FileNotFoundException($"Не удалось сконвертировать {filename}"));
+                return;
+            }
+            
             Thread.CurrentThread.CurrentCulture = new CultureInfo(settings.SourceCultureName);
             if (settings.Verbose)
             {
@@ -79,23 +105,13 @@ namespace Exceptions
             yield return lineIndex.ToString();
         }
 
-        public static string ConvertLine(string arg) 
-        {                                                
-            try
-            {
-                return ConvertAsDateTime(arg);
-            }
-            catch
-            {
-                try
-                {
-                    return ConvertAsDouble(arg);
-                }
-                catch
-                {
-                    return ConvertAsCharIndexInstruction(arg);
-                }
-            }
+        public static string ConvertLine(string arg)
+        {
+            if (double.TryParse(arg, out var number))
+                return number.ToString(CultureInfo.InvariantCulture);
+            return DateTime.TryParse(arg, out var dateTime)
+                ? dateTime.ToString(CultureInfo.InvariantCulture)
+                : ConvertAsCharIndexInstruction(arg);
         }
 
         private static string ConvertAsCharIndexInstruction(string s)
@@ -107,16 +123,6 @@ namespace Exceptions
                 return null;
             var text = parts[1];
             return text[charIndex].ToString();
-        }
-
-        private static string ConvertAsDateTime(string arg)
-        {
-            return DateTime.Parse(arg).ToString(CultureInfo.InvariantCulture);
-        }
-
-        private static string ConvertAsDouble(string arg)
-        {
-            return double.Parse(arg).ToString(CultureInfo.InvariantCulture);
         }
     }
 }
